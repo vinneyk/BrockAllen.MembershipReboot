@@ -810,6 +810,34 @@ namespace BrockAllen.MembershipReboot.Test.AccountService
         }
 
         [TestMethod]
+        public void VerifyEmailFromKey_Success_Raises_EmailVerifiedEvent_New_Account()
+        {
+            var emailVerifiedEvent = CaptureLatestEvent.For<EmailVerifiedEvent<UserAccount>>();
+            configuration.AddEventHandler(emailVerifiedEvent);
+            configuration.AllowLoginAfterAccountCreation = true;
+            configuration.RequireAccountVerification = true;
+            subject.CreateAccount("test", "pass", "test@test.com");
+
+            subject.VerifyEmailFromKey(LastVerificationKey, "pass");
+            Assert.IsTrue(emailVerifiedEvent.Latest.IsNewAccount);
+        }
+
+        [TestMethod]
+        public void VerifyEmailFromKey_Success_Raises_EmailVerifiedEvent_Account_Existing_Account()
+        {
+            var emailVerifiedEvent = CaptureLatestEvent.For<EmailVerifiedEvent<UserAccount>>();
+            configuration.AddEventHandler(emailVerifiedEvent);
+            configuration.AllowLoginAfterAccountCreation = true;
+            configuration.RequireAccountVerification = true;
+            var account = subject.CreateAccount("test", "pass", "test@test.com");
+            subject.VerifyEmailFromKey(LastVerificationKey, "pass");
+            subject.ChangeEmailRequest(account.ID, account.Email);
+
+            subject.VerifyEmailFromKey(LastVerificationKey, "pass");
+            Assert.IsFalse(emailVerifiedEvent.Latest.IsNewAccount);
+        }
+
+        [TestMethod]
         public void CancelVerification_CloseAccount()
         {
             var acct = subject.CreateAccount("test", "pass", "test@test.com");
@@ -1047,6 +1075,32 @@ namespace BrockAllen.MembershipReboot.Test.AccountService
             this.configuration.RequireAccountVerification = true;
 
             var acc = subject.CreateAccount("test", "pass", "test@test.com");
+            AuthenticationFailureCode failureCode;
+            Assert.IsFalse(subject.Authenticate("test", "pass", out failureCode));
+            Assert.AreEqual(AuthenticationFailureCode.AccountNotVerified, failureCode);
+        }
+
+        [TestMethod]
+        public void Authenticate_AccountNotVerified_VerificationWindowOpen_LoginAllowed()
+        {
+            this.configuration.RequireAccountVerification = true;
+            this.configuration.AllowUnverifiedAccountsWindow = TimeSpan.FromDays(1);
+            
+            subject.Now = new DateTime(2016, 2, 1, 11, 53, 0);
+            var acc = subject.CreateAccount("test", "pass", "test@test.com");
+            Assert.IsTrue(subject.Authenticate("test", "pass"));
+        }
+
+        [TestMethod]
+        public void Authenticate_AccountNotVerified_VerificationWindowOpen_Fails()
+        {
+            this.configuration.RequireAccountVerification = true;
+            this.configuration.AllowUnverifiedAccountsWindow = TimeSpan.FromDays(1);
+            var unvarifiedAccountAccessWindow = this.configuration.AllowUnverifiedAccountsWindow = TimeSpan.FromDays(1);
+
+            subject.Now = new DateTime(2016, 2, 1, 11, 53, 0);
+            var acc = subject.CreateAccount("test", "pass", "test@test.com");
+            subject.Now += unvarifiedAccountAccessWindow.Value.Add(TimeSpan.FromMilliseconds(1));
             AuthenticationFailureCode failureCode;
             Assert.IsFalse(subject.Authenticate("test", "pass", out failureCode));
             Assert.AreEqual(AuthenticationFailureCode.AccountNotVerified, failureCode);
